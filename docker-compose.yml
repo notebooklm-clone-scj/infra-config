@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # 1. 통합 DB: 관계형 데이터(회원, 프로젝트) + 벡터 데이터(PDF 문장 임베딩) 모두 처리!
+  postgres:
+    image: pgvector/pgvector:pg16 # 일반 postgres 대신 pgvector가 기본 설치된 이미지 사용
+    container_name: notebook_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: chanjin
+      POSTGRES_PASSWORD: chanjinpassword
+      POSTGRES_DB: notebooklm_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. 캐시 & 세션 (기존과 동일, 빠른 응답용)
+  redis:
+    image: redis:alpine
+    container_name: notebook_redis
+    ports:
+      - "6379:6379"
+
+# 컨테이너가 꺼져도 DB 데이터가 날아가지 않도록 볼륨 생성
+volumes:
+  postgres_data:
