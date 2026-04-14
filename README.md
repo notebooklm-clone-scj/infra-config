@@ -83,6 +83,21 @@
 }
 ```
 
+### 6. 인증 구조
+
+- Spring Security + JWT Filter 기반 인증 구조를 사용합니다.
+- 로그인 시 access token과 refresh token을 함께 발급합니다.
+- refresh token은 Redis에 저장하고, 재발급 시 새 refresh token으로 교체합니다.
+- 로그아웃 시 Redis의 refresh token을 삭제해 재발급을 차단합니다.
+- 관리자 API는 `ROLE_ADMIN` 권한으로만 접근할 수 있습니다.
+
+### 7. AI 호출 관측성
+
+- Spring은 AI Worker 호출 결과를 `AiCallLog`로 저장합니다.
+- 요청 종류(`PDF_SUMMARY`, `CHAT`, `CHAT_SUMMARY`), 성공 여부, latency, errorCode를 기록합니다.
+- Spring과 FastAPI는 `requestId`를 공유해 같은 요청 흐름을 추적합니다.
+- FastAPI는 요청별 시작/종료 시점과 단계별 처리 로그를 남깁니다.
+
 ## 실행 순서
 
 ### 1. 인프라 실행
@@ -122,18 +137,17 @@ cd /Users/seochanjin/workspace/notebooklm/core-api-spring
 
 ## 문서
 
-- 전체 아키텍처: [docs/architecture.md](/Users/seochanjin/workspace/notebooklm/infra-config/docs/architecture.md)
-- Spring API 설명: [core-api-spring README](/Users/seochanjin/workspace/notebooklm/core-api-spring/README.md)
-- FastAPI AI Worker 설명: [ai-worker-fastapi README](/Users/seochanjin/workspace/notebooklm/ai-worker-fastapi/README.md)
-- 프론트 설명: [frontend-ui README](/Users/seochanjin/workspace/notebooklm/frontend-ui/README.md)
+- 전체 아키텍처: `./docs/architecture.md`
+- Spring 설명: `../core-api-spring/README.md`
+- FastAPI 설명: `../ai-worker-fastapi/README.md`
+- 프론트 설명: `../frontend-ui/README.md`
 
 ## 현재 한계와 다음 단계
 
 현재 레퍼런스는 청크 단위라 가독성이 높지 않습니다.
 추후에는 아래 방향으로 확장할 수 있습니다.
 
-- 오래된 대화의 요약 메모리 전략 구현
 - SSE 기반 스트리밍 응답
 - PDF 위치 정보 기반 하이라이트 표시
 - 레퍼런스 품질 개선
-- 테스트 범위 확대 및 관측성 보강
+- 관리자 화면과 운영 대시보드 추가
