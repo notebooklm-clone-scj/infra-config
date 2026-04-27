@@ -104,6 +104,7 @@
 
 ```bash
 cd /Users/seochanjin/workspace/notebooklm/infra-config
+cp .env.example .env
 docker compose up -d
 ```
 
@@ -132,8 +133,11 @@ Spring은 현재 로컬 실행 기준으로 연결되는 구성이며, 필요 �
 
 ```bash
 cd /Users/seochanjin/workspace/notebooklm/core-api-spring
-./gradlew bootRun
+cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
+SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
+
+`infra-config/.env`의 `POSTGRES_PASSWORD`와 `core-api-spring/src/main/resources/application-local.yml`의 DB 비밀번호는 동일하게 맞춰야 합니다.
 
 ## 문서
 
