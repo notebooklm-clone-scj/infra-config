@@ -1,157 +1,347 @@
-# notebooklm-clone-scj
+# infra-config
 
-문서를 업로드하고, 요약을 생성하고, 문서 기반 질의를 수행하는 NotebookLM 스타일 멀티서비스 프로젝트입니다.
+NotebookLM Clone 전체 시스템의 인프라 실행, 운영 배포, 아키텍처 문서를 관리하는 저장소입니다.
 
-이 저장소는 단순 인프라 설정만 모아둔 폴더가 아니라, 전체 프로젝트를 실행하고 설명하는 허브 역할도 함께 담당합니다.
+이 저장소는 단순히 Docker 설정만 모아두는 곳이 아니라, 멀티레포 프로젝트를 어떤 방식으로 연결하고 실행하는지 설명하는 허브 역할을 담당합니다.
 
-```txt
-사용자 요청
-  -> frontend-ui
-  -> core-api-spring
-  -> ai-worker-fastapi
-  -> PostgreSQL / pgvector
-  -> 응답 저장 및 재조회
+## Repository Role
+
+이 프로젝트는 아래 4개 저장소로 분리되어 있습니다.
+
+| Repository | Role |
+| --- | --- |
+| `frontend-ui` | Next.js 기반 사용자 인터페이스 |
+| `core-api-spring` | 인증, 노트북, 문서, 채팅 API 및 비즈니스 로직 |
+| `ai-worker-fastapi` | PDF 파싱, 요약, 임베딩, 벡터 검색, LLM 연동 |
+| `infra-config` | Docker Compose, Nginx, 배포 문서, 아키텍처 문서 |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[User Browser]
+    N[Nginx]
+    F[frontend-ui<br/>Next.js]
+    S[core-api-spring<br/>Spring Boot]
+    A[ai-worker-fastapi<br/>FastAPI]
+    P[(PostgreSQL + pgvector)]
+    R[(Redis)]
+    G[Gemini API]
+
+    U --> N
+    N --> F
+    N --> S
+    F --> S
+    S --> P
+    S --> R
+    S --> A
+    A --> P
+    A --> G
 ```
 
-## 프로젝트 목표
+## Document Analysis Flow
 
-- 문서를 업로드하면 비동기로 분석을 수행한다.
-- 문서 요약과 문서 기반 채팅을 하나의 노트북 단위로 묶는다.
-- AI 답변의 근거를 저장하고, 과거 채팅에서도 다시 확인할 수 있게 한다.
-- Spring, Python, AI, Docker가 연결된 구조를 실제 서비스처럼 구성한다.
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend as frontend-ui
+    participant Spring as core-api-spring
+    participant Worker as ai-worker-fastapi
+    participant DB as PostgreSQL/pgvector
 
-## 서비스 구성
+    User->>Frontend: PDF 업로드
+    Frontend->>Spring: 업로드 요청 전달
+    Spring->>DB: Document(status=PROCESSING) 저장
+    Spring->>Worker: PDF 분석 요청
+    Worker->>Worker: 텍스트 추출, 요약 생성
+    Worker->>DB: 임베딩 및 메타데이터 저장
+    Worker-->>Spring: 분석 결과 반환
+    Spring->>DB: Document(status=COMPLETED/FAILED) 갱신
+    Frontend->>Spring: 문서 목록 재조회
+```
 
-| 저장소 | 역할 | 주요 기술 |
+## Chat Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend as frontend-ui
+    participant Spring as core-api-spring
+    participant Worker as ai-worker-fastapi
+    participant DB as PostgreSQL/pgvector
+    participant Gemini as Gemini API
+
+    User->>Frontend: 질문 입력
+    Frontend->>Spring: 채팅 요청
+    Spring->>DB: 최근 대화/문서 조회
+    Spring->>Worker: question + history 전달
+    Worker->>DB: 유사 문서 청크 검색
+    Worker->>Gemini: 컨텍스트 기반 답변 요청
+    Gemini-->>Worker: 답변 반환
+    Worker-->>Spring: answer + references 반환
+    Spring->>DB: ChatHistory + ChatReference 저장
+    Spring-->>Frontend: 응답 반환
+```
+
+## Services
+
+| Service | Role | Default Port |
 | --- | --- | --- |
-| `core-api-spring` | 사용자, 노트북, 문서, 채팅 API 및 비즈니스 로직 | Spring Boot, JPA, JWT |
-| `ai-worker-fastapi` | PDF 파싱, 임베딩, 유사도 검색, LLM 응답 생성 | FastAPI, LangChain, Gemini, PGVector |
-| `frontend-ui` | 사용자 화면, 인증 처리, Spring API 프록시 | Next.js, TypeScript, Docker |
-| `infra-config` | 공용 인프라 실행과 전체 아키텍처 문서 | Docker Compose, PostgreSQL, Redis |
+| `nginx` | 외부 진입점, reverse proxy | `80` |
+| `frontend-ui` | 사용자 인터페이스 | `3000` |
+| `spring-api` | 메인 비즈니스 API | `8080` |
+| `ai-worker` | PDF 처리, 임베딩, LLM 연동 | `8000` |
+| `postgres` | 관계형 데이터 및 벡터 저장소 | `5432` |
+| `redis` | refresh token 및 캐시 저장 | `6379` |
 
-## 핵심 기능
+## Files
 
-### 1. 노트북 단위 문서 관리
+이 저장소에서 주로 사용하는 파일은 다음과 같습니다.
 
-- 사용자는 노트북을 생성할 수 있습니다.
-- 노트북마다 여러 PDF 문서를 업로드할 수 있습니다.
-- 문서 목록과 요약은 노트북 단위로 관리됩니다.
+- `docker-compose.yml`: 로컬 인프라만 띄우는 간단한 Compose 파일
+- `docker-compose.prod.yml`: 전체 멀티서비스 운영 배포용 Compose 파일
+- `.env.example`: 로컬 PostgreSQL 실행용 예시 환경 변수
+- `.env.prod.example`: 운영 배포용 예시 환경 변수
+- `nginx/nginx.conf`: reverse proxy 설정
+- `docs/architecture.md`: 전체 아키텍처 상세 문서
 
-### 2. 비동기 문서 분석
+## Local Infra
 
-문서 업로드는 즉시 요약을 반환하지 않습니다.
-
-```txt
-1. 사용자가 PDF 업로드
-2. Spring이 문서 레코드를 먼저 생성
-3. Spring이 FastAPI 분석 작업을 비동기로 전달
-4. FastAPI가 텍스트 추출, 요약, 임베딩 저장 수행
-5. Spring이 문서 상태와 요약을 갱신
-6. 프론트가 문서 목록을 다시 조회해 상태를 반영
-```
-
-### 3. 문서 기반 채팅
-
-- 채팅은 특정 문서 하나가 아니라 노트북 전체 문서 집합을 기준으로 수행됩니다.
-- Spring은 최근 대화 일부만 AI Worker에 전달해 컨텍스트 길이를 제한합니다.
-- FastAPI는 pgvector에서 유사한 청크를 찾아 답변과 근거를 생성합니다.
-
-### 4. AI 답변 근거 저장
-
-- FastAPI는 `reference_chunks`를 함께 반환합니다.
-- Spring은 AI 답변과 근거를 별도 엔티티로 저장합니다.
-- 이후 채팅 이력 조회 시 과거 AI 답변의 근거도 다시 확인할 수 있습니다.
-
-### 5. API 에러 응답 표준화
-
-- Spring은 공통 예외 응답 구조를 사용합니다.
-- 잘못된 입력, 잘못된 요청 본문, 외부 AI 서버 장애를 일관된 JSON 형식으로 내려줍니다.
-
-예시:
-
-```json
-{
-  "status": 400,
-  "code": "C001",
-  "message": "잘못된 입력값입니다.",
-  "errors": [
-    {
-      "field": "email",
-      "message": "이메일 형식이 올바르지 않습니다."
-    }
-  ]
-}
-```
-
-### 6. 인증 구조
-
-- Spring Security + JWT Filter 기반 인증 구조를 사용합니다.
-- 로그인 시 access token과 refresh token을 함께 발급합니다.
-- refresh token은 Redis에 저장하고, 재발급 시 새 refresh token으로 교체합니다.
-- 로그아웃 시 Redis의 refresh token을 삭제해 재발급을 차단합니다.
-- 관리자 API는 `ROLE_ADMIN` 권한으로만 접근할 수 있습니다.
-
-### 7. AI 호출 관측성
-
-- Spring은 AI Worker 호출 결과를 `AiCallLog`로 저장합니다.
-- 요청 종류(`PDF_SUMMARY`, `CHAT`, `CHAT_SUMMARY`), 성공 여부, latency, errorCode를 기록합니다.
-- Spring과 FastAPI는 `requestId`를 공유해 같은 요청 흐름을 추적합니다.
-- FastAPI는 요청별 시작/종료 시점과 단계별 처리 로그를 남깁니다.
-
-## 실행 순서
-
-### 1. 인프라 실행
+PostgreSQL과 Redis만 먼저 띄워서 로컬 개발 환경의 기반으로 사용할 수 있습니다.
 
 ```bash
-cd /Users/seochanjin/workspace/notebooklm/infra-config
+cd infra-config
 cp .env.example .env
 docker compose up -d
 ```
 
-기본 인프라:
+구성:
 
 - PostgreSQL + pgvector
 - Redis
 
-### 2. AI Worker 실행
+## Production Deployment
 
-```bash
-cd /Users/seochanjin/workspace/notebooklm/ai-worker-fastapi
-docker compose up --build
+운영 배포는 이 저장소의 `docker-compose.prod.yml` 기준으로 수행합니다.
+
+### 1. 디렉터리 구조
+
+운영 서버에는 아래처럼 4개 저장소가 같은 상위 디렉터리 아래 있어야 합니다.
+
+```txt
+~/notebooklm
+├── frontend-ui
+├── core-api-spring
+├── ai-worker-fastapi
+└── infra-config
 ```
 
-### 3. 프론트 실행
+`docker-compose.prod.yml`은 `infra-config` 안에 있지만, 각 서비스 이미지는 형제 디렉터리의 소스코드를 사용하도록 되어 있습니다.
+
+### 2. 운영 환경 변수 파일 생성
 
 ```bash
-cd /Users/seochanjin/workspace/notebooklm/frontend-ui
-docker compose up --build
+cd ~/notebooklm/infra-config
+cp .env.prod.example .env
 ```
 
-### 4. Spring API 실행
+실제 운영 값은 `.env`에 입력하고, 이 파일은 Git에 커밋하지 않습니다.
 
-Spring은 현재 로컬 실행 기준으로 연결되는 구성이며, 필요 시 Dockerfile로 이미지 빌드가 가능합니다.
+### 3. 주요 환경 변수
+
+```env
+POSTGRES_USER=chanjin
+POSTGRES_PASSWORD=replace-with-a-strong-db-password
+POSTGRES_DB=notebooklm_db
+
+SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/notebooklm_db
+SPRING_DATASOURCE_USERNAME=chanjin
+SPRING_DATASOURCE_PASSWORD=replace-with-a-strong-db-password
+SPRING_DATA_REDIS_HOST=redis
+SPRING_DATA_REDIS_PORT=6379
+JWT_SECRET=replace-with-a-32-byte-or-longer-secret
+AI_WORKER_URL=http://ai-worker:8000
+APP_CORS_ALLOWED_ORIGINS=http://your-domain.example
+
+CORE_API_BASE_URL=http://spring-api:8080
+SESSION_COOKIE_SECURE=true
+
+GEMINI_API_KEY=replace-with-your-gemini-api-key
+DATABASE_URL=postgresql://chanjin:replace-with-a-strong-db-password@postgres:5432/notebooklm_db
+```
+
+### 4. 전체 서비스 실행
+
+Docker Compose v1 환경:
 
 ```bash
-cd /Users/seochanjin/workspace/notebooklm/core-api-spring
-cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
-SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+docker-compose -f docker-compose.prod.yml up -d --build
 ```
 
-`infra-config/.env`의 `POSTGRES_PASSWORD`와 `core-api-spring/src/main/resources/application-local.yml`의 DB 비밀번호는 동일하게 맞춰야 합니다.
+Docker Compose plugin 환경:
 
-## 문서
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
 
-- 전체 아키텍처: `./docs/architecture.md`
-- Spring 설명: `../core-api-spring/README.md`
-- FastAPI 설명: `../ai-worker-fastapi/README.md`
-- 프론트 설명: `../frontend-ui/README.md`
+### 5. 상태 확인
 
-## 현재 한계와 다음 단계
+```bash
+docker-compose -f docker-compose.prod.yml ps
+```
 
-현재 레퍼런스는 청크 단위라 가독성이 높지 않습니다.
-추후에는 아래 방향으로 확장할 수 있습니다.
+### 6. 로그 확인
 
-- SSE 기반 스트리밍 응답
-- PDF 위치 정보 기반 하이라이트 표시
-- 레퍼런스 품질 개선
-- 관리자 화면과 운영 대시보드 추가
+```bash
+docker-compose -f docker-compose.prod.yml logs --tail=200 spring-api
+docker-compose -f docker-compose.prod.yml logs --tail=200 ai-worker
+docker-compose -f docker-compose.prod.yml logs --tail=200 frontend-ui
+```
+
+### 7. 종료
+
+```bash
+docker-compose -f docker-compose.prod.yml down
+```
+
+## HTTPS with Let's Encrypt
+
+도메인 DNS가 서버 IP를 가리키고 있다면, Certbot으로 무료 HTTPS 인증서를 발급받을 수 있습니다.
+
+현재 저장소에는 두 단계 구성이 들어 있습니다.
+
+- `nginx/nginx.conf`: 최초 인증서 발급용 HTTP 설정
+- `nginx/nginx.https.conf`: 인증서 발급 후 사용할 HTTPS 설정
+
+### 1. 443 포트 열기
+
+클라우드 방화벽에서 `443/TCP`를 허용해야 합니다.
+
+### 2. 현재 HTTP 설정으로 서비스 실행
+
+```bash
+cd ~/notebooklm/infra-config
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+### 3. 인증서 발급
+
+루트 도메인만 쓸 경우:
+
+```bash
+docker-compose -f docker-compose.prod.yml run --rm certbot certonly --webroot --webroot-path=/var/www/certbot -d dev-scj.site --email your-email@example.com --agree-tos --no-eff-email
+```
+
+`www`도 함께 쓸 경우:
+
+```bash
+docker-compose -f docker-compose.prod.yml run --rm certbot certonly --webroot --webroot-path=/var/www/certbot -d dev-scj.site -d www.dev-scj.site --email your-email@example.com --agree-tos --no-eff-email
+```
+
+주의:
+
+- `www.dev-scj.site`를 같이 발급받으려면 해당 DNS 레코드도 서버를 가리켜야 합니다.
+- DNS가 아직 전파되지 않았으면 인증서 발급이 실패할 수 있습니다.
+
+### 4. HTTPS 설정으로 전환
+
+인증서 발급이 끝나면 아래처럼 HTTPS 설정 파일로 교체합니다.
+
+```bash
+cp nginx/nginx.https.conf nginx/nginx.conf
+docker-compose -f docker-compose.prod.yml restart nginx
+```
+
+### 5. 확인
+
+브라우저에서 아래 주소로 접속합니다.
+
+- `https://dev-scj.site`
+- `https://www.dev-scj.site`
+
+인증서가 정상이라면 자물쇠가 표시됩니다.
+
+## Access
+
+배포 완료 후 일반적으로 외부 사용자는 Nginx를 통해 접속합니다.
+
+- 사용자 화면: `http://<server-domain-or-ip>`
+- Spring API 내부 주소: `http://spring-api:8080`
+- AI Worker 내부 주소: `http://ai-worker:8000`
+
+보통 외부에는 `80`, `443`, `22`만 열고, 내부 서비스 포트는 직접 노출하지 않습니다.
+
+## Recommended Network Policy
+
+외부 공개 권장 포트:
+
+- `80` HTTP
+- `443` HTTPS
+- `22` SSH
+
+비공개 유지 권장 포트:
+
+- `5432` PostgreSQL
+- `6379` Redis
+- `8000` AI Worker
+- `8080` Spring API
+
+## Troubleshooting
+
+### 1. frontend build 실패
+
+```bash
+docker-compose -f docker-compose.prod.yml logs --tail=200 frontend-ui
+```
+
+Next.js production build 타입 오류나 서버 런타임 오류를 먼저 확인합니다.
+
+### 2. AI 분석 실패
+
+```bash
+docker-compose -f docker-compose.prod.yml logs --tail=200 ai-worker
+```
+
+주요 확인 포인트:
+
+- `GEMINI_API_KEY`가 유효한지
+- `DATABASE_URL` 값이 올바른지
+- PostgreSQL 연결이 정상인지
+- 문서 분석 요청이 `POST /api/v1/pdf/extract`에서 실패하는지
+
+### 3. Spring API 통신 오류
+
+```bash
+docker-compose -f docker-compose.prod.yml logs --tail=200 spring-api
+```
+
+주요 확인 포인트:
+
+- `AI_WORKER_URL` 값이 올바른지
+- JWT/Redis 설정이 정상인지
+- DB 연결 및 JPA 테이블 생성이 정상인지
+
+### 4. docker-compose v1 재생성 오류
+
+일부 환경에서는 컨테이너 재생성 중 `ContainerConfig` 오류가 발생할 수 있습니다.
+
+이 경우 전체 종료 후 다시 실행하면 해결되는 경우가 많습니다.
+
+```bash
+docker-compose -f docker-compose.prod.yml down
+docker-compose -f docker-compose.prod.yml up -d --build
+```
+
+## Security Notes
+
+- `docker-compose.prod.yml`은 Git에 커밋해도 됩니다.
+- `.env`, `.env.prod` 같은 실제 비밀값 파일은 Git에 커밋하면 안 됩니다.
+- 운영 환경에서는 `SESSION_COOKIE_SECURE=true`를 권장합니다.
+- 운영 환경에서는 강한 `JWT_SECRET`과 DB 비밀번호를 사용해야 합니다.
+
+## Related Documents
+
+- [docs/architecture.md](./docs/architecture.md)
+- [frontend-ui](https://github.com/notebooklm-clone-scj/frontend-ui)
+- [core-api-spring](https://github.com/notebooklm-clone-scj/core-api-spring)
+- [ai-worker-fastapi](https://github.com/notebooklm-clone-scj/ai-worker-fastapi)
