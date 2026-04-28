@@ -124,6 +124,14 @@ docker compose up -d
 
 운영 배포는 이 저장소의 `docker-compose.prod.yml` 기준으로 수행합니다.
 
+이 섹션의 명령은 모두 아래 위치에서 실행한다고 가정합니다.
+
+```bash
+cd ~/notebooklm/infra-config
+```
+
+또한 Compose 프로젝트 이름은 기존 배포와 볼륨 이름을 유지하기 위해 `notebooklm`으로 고정합니다.
+
 ### 1. 디렉터리 구조
 
 운영 서버에는 아래처럼 4개 저장소가 같은 상위 디렉터리 아래 있어야 합니다.
@@ -141,7 +149,6 @@ docker compose up -d
 ### 2. 운영 환경 변수 파일 생성
 
 ```bash
-cd ~/notebooklm/infra-config
 cp .env.prod.example .env
 ```
 
@@ -172,37 +179,103 @@ DATABASE_URL=postgresql://chanjin:replace-with-a-strong-db-password@postgres:543
 
 ### 4. 전체 서비스 실행
 
-Docker Compose v1 환경:
+이미지까지 다시 빌드하면서 전체 서비스를 실행합니다.
 
 ```bash
-docker-compose -f docker-compose.prod.yml up -d --build
-```
-
-Docker Compose plugin 환경:
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker-compose -p notebooklm -f docker-compose.prod.yml up -d --build
 ```
 
 ### 5. 상태 확인
 
 ```bash
-docker-compose -f docker-compose.prod.yml ps
+docker-compose -p notebooklm -f docker-compose.prod.yml ps
 ```
 
 ### 6. 로그 확인
 
 ```bash
-docker-compose -f docker-compose.prod.yml logs --tail=200 spring-api
-docker-compose -f docker-compose.prod.yml logs --tail=200 ai-worker
-docker-compose -f docker-compose.prod.yml logs --tail=200 frontend-ui
+docker-compose -p notebooklm -f docker-compose.prod.yml logs --tail=200 spring-api
+docker-compose -p notebooklm -f docker-compose.prod.yml logs --tail=200 ai-worker
+docker-compose -p notebooklm -f docker-compose.prod.yml logs --tail=200 frontend-ui
 ```
 
 ### 7. 종료
 
 ```bash
-docker-compose -f docker-compose.prod.yml down
+docker-compose -p notebooklm -f docker-compose.prod.yml down
 ```
+
+## Operations
+
+운영 중 자주 쓰는 정지/재기동 명령은 아래 기준으로 사용합니다.
+
+이 섹션의 명령도 모두 아래 위치에서 실행합니다.
+
+```bash
+cd ~/notebooklm/infra-config
+```
+
+### 1. 컨테이너를 완전히 내리기
+
+컨테이너와 네트워크를 정리하고 나중에 다시 올리고 싶을 때 사용합니다.
+
+```bash
+docker-compose -p notebooklm -f docker-compose.prod.yml down
+```
+
+다시 시작:
+
+```bash
+docker-compose -p notebooklm -f docker-compose.prod.yml up -d
+```
+
+코드 변경까지 반영하면서 다시 시작:
+
+```bash
+docker-compose -p notebooklm -f docker-compose.prod.yml up -d --build
+```
+
+### 2. 컨테이너를 잠깐 멈추기
+
+컨테이너를 삭제하지 않고 잠깐 멈췄다가 빠르게 다시 켜고 싶을 때 사용합니다.
+
+```bash
+docker-compose -p notebooklm -f docker-compose.prod.yml stop
+```
+
+다시 시작:
+
+```bash
+docker-compose -p notebooklm -f docker-compose.prod.yml start
+```
+
+### 3. 서버(VM) 자체를 종료할 때
+
+권장 순서는 아래와 같습니다.
+
+1. 먼저 애플리케이션 컨테이너를 내립니다.
+2. 그 다음 VM을 종료합니다.
+3. VM이 다시 켜진 뒤 Compose로 서비스를 다시 올립니다.
+
+예시:
+
+```bash
+docker-compose -p notebooklm -f docker-compose.prod.yml down
+shutdown -h now
+```
+
+서버 재기동 후:
+
+```bash
+cd ~/notebooklm/infra-config
+docker-compose -p notebooklm -f docker-compose.prod.yml up -d
+```
+
+### 4. 주의사항
+
+- `down -v`는 PostgreSQL 볼륨까지 삭제할 수 있으므로 운영 환경에서는 사용하지 않는 것을 권장합니다.
+- 인증서는 `certbot/conf`에 저장되므로 일반적인 `down`/`up`만으로는 사라지지 않습니다.
+- `infra-config` 디렉터리에서 실행하더라도 `-p notebooklm`를 붙여야 기존 프로젝트 이름과 볼륨 이름을 유지할 수 있습니다.
 
 ## HTTPS with Let's Encrypt
 
@@ -213,6 +286,12 @@ docker-compose -f docker-compose.prod.yml down
 - `nginx/nginx.conf`: 최초 인증서 발급용 HTTP 설정
 - `nginx/nginx.https.conf`: 인증서 발급 후 사용할 HTTPS 설정
 
+이 섹션의 명령도 모두 아래 위치에서 실행합니다.
+
+```bash
+cd ~/notebooklm/infra-config
+```
+
 ### 1. 443 포트 열기
 
 클라우드 방화벽에서 `443/TCP`를 허용해야 합니다.
@@ -220,8 +299,7 @@ docker-compose -f docker-compose.prod.yml down
 ### 2. 현재 HTTP 설정으로 서비스 실행
 
 ```bash
-cd ~/notebooklm/infra-config
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -p notebooklm -f docker-compose.prod.yml up -d
 ```
 
 ### 3. 인증서 발급
@@ -229,19 +307,20 @@ docker-compose -f docker-compose.prod.yml up -d
 루트 도메인만 쓸 경우:
 
 ```bash
-docker-compose -f docker-compose.prod.yml run --rm certbot certonly --webroot --webroot-path=/var/www/certbot -d dev-scj.site --email your-email@example.com --agree-tos --no-eff-email
+docker-compose -p notebooklm -f docker-compose.prod.yml run --rm --entrypoint certbot certbot certonly --webroot --webroot-path=/var/www/certbot -d dev-scj.site --email your-email@example.com --agree-tos --no-eff-email
 ```
 
 `www`도 함께 쓸 경우:
 
 ```bash
-docker-compose -f docker-compose.prod.yml run --rm certbot certonly --webroot --webroot-path=/var/www/certbot -d dev-scj.site -d www.dev-scj.site --email your-email@example.com --agree-tos --no-eff-email
+docker-compose -p notebooklm -f docker-compose.prod.yml run --rm --entrypoint certbot certbot certonly --webroot --webroot-path=/var/www/certbot -d dev-scj.site -d www.dev-scj.site --email your-email@example.com --agree-tos --no-eff-email
 ```
 
 주의:
 
 - `www.dev-scj.site`를 같이 발급받으려면 해당 DNS 레코드도 서버를 가리켜야 합니다.
 - DNS가 아직 전파되지 않았으면 인증서 발급이 실패할 수 있습니다.
+- `certbot` 서비스는 기본 entrypoint가 `renew` 루프이므로, 신규 발급 시에는 반드시 `--entrypoint certbot`를 붙여야 합니다.
 
 ### 4. HTTPS 설정으로 전환
 
@@ -249,7 +328,7 @@ docker-compose -f docker-compose.prod.yml run --rm certbot certonly --webroot --
 
 ```bash
 cp nginx/nginx.https.conf nginx/nginx.conf
-docker-compose -f docker-compose.prod.yml restart nginx
+docker-compose -p notebooklm -f docker-compose.prod.yml restart nginx
 ```
 
 ### 5. 확인
@@ -291,7 +370,7 @@ docker-compose -f docker-compose.prod.yml restart nginx
 ### 1. frontend build 실패
 
 ```bash
-docker-compose -f docker-compose.prod.yml logs --tail=200 frontend-ui
+docker-compose -p notebooklm -f docker-compose.prod.yml logs --tail=200 frontend-ui
 ```
 
 Next.js production build 타입 오류나 서버 런타임 오류를 먼저 확인합니다.
@@ -299,7 +378,7 @@ Next.js production build 타입 오류나 서버 런타임 오류를 먼저 확�
 ### 2. AI 분석 실패
 
 ```bash
-docker-compose -f docker-compose.prod.yml logs --tail=200 ai-worker
+docker-compose -p notebooklm -f docker-compose.prod.yml logs --tail=200 ai-worker
 ```
 
 주요 확인 포인트:
@@ -312,7 +391,7 @@ docker-compose -f docker-compose.prod.yml logs --tail=200 ai-worker
 ### 3. Spring API 통신 오류
 
 ```bash
-docker-compose -f docker-compose.prod.yml logs --tail=200 spring-api
+docker-compose -p notebooklm -f docker-compose.prod.yml logs --tail=200 spring-api
 ```
 
 주요 확인 포인트:
@@ -328,8 +407,8 @@ docker-compose -f docker-compose.prod.yml logs --tail=200 spring-api
 이 경우 전체 종료 후 다시 실행하면 해결되는 경우가 많습니다.
 
 ```bash
-docker-compose -f docker-compose.prod.yml down
-docker-compose -f docker-compose.prod.yml up -d --build
+docker-compose -p notebooklm -f docker-compose.prod.yml down
+docker-compose -p notebooklm -f docker-compose.prod.yml up -d --build
 ```
 
 ## Security Notes
