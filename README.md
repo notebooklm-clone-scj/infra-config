@@ -83,6 +83,21 @@ sequenceDiagram
     Spring-->>Frontend: 응답 반환
 ```
 
+## RAG Improvement Summary
+
+현재 RAG는 기본적인 벡터 검색에서 출발해 검색 범위, 검색 품질, 근거 표시, 운영 관측성을 단계적으로 개선했습니다.
+
+| 개선 영역 | 구현 내용 | 효과 |
+| --- | --- | --- |
+| 검색 범위 제한 | 채팅 요청에 `notebook_id`를 포함하고 pgvector metadata filter 적용 | 다른 노트북 문서가 섞이는 문제 감소 |
+| Retrieval 품질 | MMR 후보 검색, 로컬 reranker, dense + keyword hybrid search | 중복 청크 감소, 키워드성 질문 대응력 개선 |
+| Chunk metadata | `document_title`, `section_title`, `chunk_index`, `page_chunk_index` 저장 | 검색 결과 추적성과 근거 표시 품질 개선 |
+| Prompt grounding | 참고 chunk마다 문서명, 페이지, 섹션 정보를 붙여 프롬프트 구성 | 답변 근거 명시와 환각 감소 |
+| Conversation memory | summary memory + 최근 대화 윈도우 조합 | 긴 대화에서 컨텍스트 유지와 payload 증가 억제 |
+| Reference persistence | 답변 근거를 `ChatReference`로 저장하고 UI에서 재조회 | 새로고침 후에도 근거 확인 가능 |
+| Evaluation | 수동 평가셋과 scorecard 작성 | 개선 전후 품질 비교 기반 마련 |
+| Runtime optimization | LLM, embedding, PGVector client 재사용 | 반복 객체 생성 비용 감소 |
+
 ## Services
 
 | Service | Role | Default Port |
